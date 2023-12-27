@@ -6,3 +6,7 @@ https://www.kaggle.com/datasets/minhajuddinmeraj/anomalydetectiondatasetucf?reso
 
 # link to google colab
 https://colab.research.google.com/drive/159pJKwB4TsTxXbMHfuZdzUXKq74dd6gN?usp=sharing
+
+# Link to data set and summary
+https://drive.google.com/drive/folders/1UJNrRSXw0qAwkgujdAegejiP4dKQP9Rh?usp=sharing
+
