@@ -42,51 +42,48 @@ def get_length(file_directory):
 
     return duration
 
+def seconds_to_hhmmss(seconds):
+    hours = seconds//3600
+    seconds %= 3600
+    minutes = seconds//60
+    seconds %= 60
+    return "%02i:%02i:%02i" % (hours, minutes, seconds)
+
 ###########################################################################################
-def resize_and_concatenate_videos(video_directories, output_path):
+def resize_and_concatenate_videos(video_paths, output_path, new_width, new_height):
     # Check if the output directory exists, create it if not
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     # Initialize an empty list to store the resized video frames
     resized_frames = []
 
-    # Iterate over each video directory
-    for video_dir in video_directories:
-        # Get the list of video files in the directory
-        video_files = [f for f in os.listdir(video_dir) if f.endswith(('.mp4', '.avi', '.mkv'))]
+    # Iterate over each video path
+    for video_path in video_paths:
+        # Read the video file
+        cap = cv2.VideoCapture(video_path)
 
-        # Iterate over each video file in the directory
-        for video_file in video_files:
-            # Read the video file
-            video_path = os.path.join(video_dir, video_file)
-            cap = cv2.VideoCapture(video_path)
-            # Get video properties
-            width = int(cap.get(3))
-            height = int(cap.get(4))
-            # Resize each frame to a new width and height
-            new_width = 640
-            new_height = 480
-            new_size = (new_width, new_height)
+        # Resize each frame to the new width and height
+        resized_frames_per_video = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-            resized_frames_per_video = []
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            resized_frame = cv2.resize(frame, (new_width, new_height))
+            resized_frames_per_video.append(resized_frame)
 
-                resized_frame = cv2.resize(frame, new_size)
-                resized_frames_per_video.append(resized_frame)
-            # Close the video capture
-            cap.release()
-            # Append the resized frames to the main list
-            resized_frames.append(resized_frames_per_video)
+        # Close the video capture
+        cap.release()
+
+        # Append the resized frames to the main list
+        resized_frames.append(resized_frames_per_video)
 
     # Concatenate the resized frames in the temporal domain
     concatenated_frames = np.concatenate(resized_frames, axis=1)
 
     # Write the concatenated frames to a new video file
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can change the codec as needed
-    out = cv2.VideoWriter(output_path, fourcc, 30.0, (new_width * len(video_directories), new_height))
+    out = cv2.VideoWriter(output_path, fourcc, 30.0, (new_width * len(video_paths), new_height))
 
     for frame in concatenated_frames:
         out.write(frame)
@@ -96,53 +93,55 @@ def resize_and_concatenate_videos(video_directories, output_path):
 
 ###########################################################################################
 # define hyperparameters
-n = 5 # number of videos to be stiched
-num_crimes = 3
-vids_per_crime = 3 
+n = 3 # number of videos to be stiched
+num_crimes = 2
+vids_per_crime = 1 
+new_width = 640
+new_height = 480
 
-root_path = "path/to/vids"
+root_path = "D:\BARC\week_4\Anomaly Videos"
 ###########################################################################################
 
 path_to_normal_videos = os.path.join(root_path, "normal")
 # path_to_crime_videos = os.path.join(root_path, "crime")
 
-crime = os.listdir(root_path).remove("normal")  # around 13 crimes
-
-def make_stiched_videos():
-
-    for i in range(num_crimes):
-        anomaly = crime[i]
-        for _ in range(vids_per_crime):
-            # get a random video from each crime
-            random_vid = np.random.choice(os.listdir(os.pat.join(root_path, anomaly)), 1, replace=False) 
-            # choose 4 random videos from normal videos
-            random_normal_vids = np.random.choice(os.listdir(path_to_normal_videos), n-1, replace=False) 
-
-            idx = np.randint(0,n)
-            # insert the anomaly video at a random index
-            vids = random_normal_vids.insert(idx, random_vid)
-            # calculate the length of all the videos in the list vids
-            j=0
-            start = 0
-            while j<idx:
-                length = get_length(os.path.join(path_to_normal_videos, vids[j]))
-                start = start + length
-                j+=1
-            end = start + get_length(os.path.join(root_path, anomaly, random_vid))
-
-            # make a list of directories in the order of the videos
-            video_paths = [os.path.join((path_to_normal_videos if i != idx else os.path.join(root_path,anomaly)), vids[i]) for i in range(n)]
-            # concatenate the videos
-            output_path = os.path.join(root_path, "concatenated", anomaly, str(i))
-            resize_and_concatenate_videos(video_paths, output_path)
-            # save the video
-            save_vid(output_path, os.path.join(root_path, "concatenated", anomaly, str(i), "concatenated.mp4"))
-    return start, end
-        
-    
-        
+crime = os.listdir(root_path)
+crime.remove("normal")
 
 
+for i in range(num_crimes):
+    anomaly = crime[i]
+    for _ in range(vids_per_crime):
+        # get a random video from each crime
+        random_vid = np.random.choice(os.listdir(os.path.join(root_path, anomaly)), 1, replace=False)[0]
+        # choose 4 random videos from normal videos
+        random_normal_vids = np.random.choice(os.listdir(path_to_normal_videos), n-1, replace=False)
+        idx = np.random.randint(0, n)
+        # insert the anomaly video at a random index
+        vids = list(random_normal_vids)
+        vids.insert(idx, random_vid)
+        # calculate the length of all the videos in the list vids
+        j = 0
+        start = 0
+        while j < idx:
+            length = get_length(os.path.join(path_to_normal_videos, vids[j]))
+            start += length
+            j += 1
+        end = start + get_length(os.path.join(root_path, anomaly, random_vid))
 
-    
+        # make a list of directories in the order of the videos
+        video_paths = [os.path.join((path_to_normal_videos if i != idx else os.path.join(root_path, anomaly)), video) for i, video in enumerate(vids)]
+        # concatenate the videos
+        output_path = os.path.join(root_path, "concatenated", anomaly)
+        resize_and_concatenate_videos(video_paths, output_path, new_width, new_height)
+        # save the video
+        save_vid(os.path.join(root_path, "concatenated", anomaly, "concatenated" + str(i) + ".mp4"), output_path)
+        # save the start and end time of the anomaly of each video in a csv file in the same csv file
+        start = seconds_to_hhmmss(start)
+        end = seconds_to_hhmmss(end)
+        with open(os.path.join(root_path, "concatenated", anomaly, "start_end.csv"), "w") as f:
+            f.write("start,end\n")
+            f.write(start + "," + end + "\n")
 
+print("Done!")
+print("path to saved videos:", os.path.join(root_path, "concatenated"))
