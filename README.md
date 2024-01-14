@@ -5,7 +5,7 @@ The UCF-Crime dataset is a large-scale dataset of 128 hours of videos. It consis
 https://www.kaggle.com/datasets/minhajuddinmeraj/anomalydetectiondatasetucf?resource=download-directory&select=Anomaly-Videos-Part-1
 
 # link to google colab
-https://colab.research.google.com/drive/159pJKwB4TsTxXbMHfuZdzUXKq74dd6gN?usp=sharing
+https://colab.research.google.com/drive/1hx54EwmyEqpaif2jSu37s2bGcDiqz4a7?usp=sharing
 
 # Link to data set and summary
 https://drive.google.com/drive/folders/1HtL9kCikaStjc9wzCnA5HbcQbvXalT0V?usp=sharing
