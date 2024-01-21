@@ -7,10 +7,12 @@ import numpy as np
 import argparse
 import subprocess
 import pathlib as Path
-from run_on_video import clip, vid2clip, txt2clip
-import dataset_generation
 import evaluation_metrics
 import pandas as pd
+import matplotlib.pyplot as plt
+from run_on_video import clip, vid2clip, txt2clip
+
+
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--save_dir', type=str, default='/content/UniVTG/tmp')
@@ -38,7 +40,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
-
+###########################################################################################
 def load_model():
     logger.info("Setup config, data and model...")
     opt = TestOptions().parse(args)
@@ -59,6 +61,7 @@ vtg_model = load_model()
 def convert_to_hms(seconds):
     return time.strftime('%H:%M:%S', time.gmtime(seconds))
 
+###########################################################################################
 def load_data(save_dir):
     vid = np.load(os.path.join(save_dir, 'vid.npz'))['features'].astype(np.float32)
     txt = np.load(os.path.join(save_dir, 'txt.npz'))['features'].astype(np.float32)
@@ -83,7 +86,8 @@ def load_data(save_dir):
 
     return src_vid, src_txt, src_vid_mask, src_txt_mask, timestamp, ctx_l
 
-def forward(model, save_dir, query, actual_interval):
+###########################################################################################
+def forward(model, save_dir, query, actual_interval = None):
     src_vid, src_txt, src_vid_mask, src_txt_mask, timestamp, ctx_l = load_data(save_dir)
     src_vid = src_vid.cuda(args.gpu_id)
     src_txt = src_txt.cuda(args.gpu_id)
@@ -112,7 +116,7 @@ def forward(model, save_dir, query, actual_interval):
     top5_window = pred_windows[pred_windows_clone[4].item()].tolist()
     
     top5_values, top5_indices = torch.topk(pred_confidence.flatten(), k=5)
-    # print("top 5 probabilities: ", top5_values)
+    print("\t\ttop 5 probabilities: ", top5_values)
     # print("top 5 indices of the probabilities: ", top5_indices)
 
 
@@ -132,36 +136,56 @@ def forward(model, save_dir, query, actual_interval):
     mr_res5 =  " - ".join([convert_to_hms(int(i)) for i in top5_window])
     mr_response5 = f"The Top-5 interval is: {mr_res5}"
     
-    hl_res = convert_to_hms(torch.argmax(pred_saliency) * clip_len)
-    hl_response = f"The Top-1 highlight is: {hl_res}"
-
+    # hl_res = convert_to_hms(torch.argmax(pred_saliency) * clip_len)
+    # hl_response = f"The Top-1 highlight is: {hl_res}"
     # evaluate the model on f1 score and iou metric
     top5_video_iou_score = []
     top5_video_f1_score = []
 
-    for i in range(1,6):
-        start,end = f"m_res{i}".split(" - ")
-        predicted_interval = [start,end]
-        iou_score = evaluation_metrics.get_temporal_iou(actual_interval, predicted_interval)
-        f1_score = evaluation_metrics.get_f1_score(actual_interval,predicted_interval)
-        top5_video_iou_score.append(iou_score)
-        top5_video_f1_score.append(f1_score)
+    visualize_saliency_scores(pred_saliency)
+
+    if actual_interval != None:
+      for i in range(1,6):
+          start,end = f"m_res{i}".split(" - ")
+          predicted_interval = [start,end]
+          iou_score = evaluation_metrics.get_temporal_iou(actual_interval, predicted_interval)
+          f1_score = evaluation_metrics.get_f1_score(actual_interval,predicted_interval)
+          top5_video_iou_score.append(iou_score)
+          top5_video_f1_score.append(f1_score)
 
     return '\n'.join([q_response, mr_response1, mr_response2, mr_response3, mr_response4, mr_response5]), top5_video_iou_score, top5_video_f1_score
 
 
+###########################################################################################
+def visualize_saliency_scores(saliency_scores):
+    saliency_scores = saliency_scores.cpu().numpy()
+    saliency_scores = saliency_scores.reshape(1, -1)
+    number_of_frames = saliency_scores.shape[-1]
+
+    print("salinecy scores: ", saliency_scores)
+    plt.plot(np.arange(1, number_of_frames+1).reshape(-1,1), saliency_scores.reshape(-1,1), color='blue')
+    plt.xlabel("Frame Number")
+    plt.ylabel("Saliency Score")
+    plt.title("Saliency Scores for each frame")
+    plt.show()
+
+    return
+
+
 def extract_vid(vid_path, state):
+    # print("\t\t Inside extract_vid function ---------------- chkpt 3")
     history = state['messages']
     # list_of_crimes = os.listdir(vid_path)
     vid_features = vid2clip(clip_model, vid_path, args.save_dir)
-    history.append({"role": "user", "content": "Finish extracting video features."}) 
-    history.append({"role": "system", "content": "Please Enter the text query."}) 
-    chat_messages = [(history[i]['content'], history[i+1]['content']) for i in range(0, len(history),2)]
+    history.append({"role": "user", "content": "Finished extracting video features."}) 
+    # history.append({"role": "system", "content": "Please Enter the text query."}) 
+    chat_messages = [(history[i]['content'], history[i+1]['content']) for i in range(0, len(history)-1,2)]
     return '', chat_messages, state
 
 def extract_txt(txt):
+    # print("\t\t Inside extract_text function ---------------- chkpt 4")
     txt_features = txt2clip(clip_model, txt, args.save_dir)
-    return
+    return txt_features
 
 def download_video(url, save_dir='./examples', size=768):
     save_path = f'{save_dir}/{url}.mp4'
@@ -185,19 +209,42 @@ def submit_message(input_value, state):   # input_value : ./data
     history = state['messages']
     top5_video_iou_score = []
     top5_video_f1_score = []
+    
 
     if not input_value:
         return gr.update(value=''), [(history[i]['content'], history[i+1]['content']) for i in range(0, len(history)-1, 2)], state
+    
+    # if a video and query is manually uploaded
+    if not(os.path.isdir(input_value)):
+        prompt_msg = { "role": "user", "content": input_value }
+        
+        try:
+            history.append(prompt_msg)
+            # answer = vlogger.chat2video(prompt)
+            # answer = prompt
+            extract_txt(input_value)
+            answer,iou_vid, f1_score_vid  = forward(vtg_model, args.save_dir, input_value)
+            history.append({"role": "system", "content": answer}) 
+
+        except Exception as e:
+            history.append(prompt_msg)
+            history.append({
+                "role": "system",
+                "content": f"Error: {e}"
+            })
+
+        chat_messages = [(history[i]['content'], history[i+1]['content']) for i in range(0, len(history)-1, 2)]
+        return '', chat_messages, state
+    
 
     # Check if the input is a directory
-    if os.path.isdir(input_value):
+    elif os.path.isdir(input_value):
         # Process all text files in the directory
-        print(os.listdir(input_value).remove(".ipynb_checkpoints"))
+        print(os.listdir(input_value))
         crime_list = os.listdir(input_value)
         crime_list.remove(".ipynb_checkpoints") if ".ipynb_checkpoints" in crime_list else None
-
         for crime in crime_list: # file_patth are the crime in this case around 13 crimes
-            print()
+            print("-------------------------------------------------------")
             print("Processing the anomaly video: ", crime)
             start_end_df = pd.read_csv(os.path.join(input_value,crime,"start_end.csv"))
             i=1
@@ -207,19 +254,22 @@ def submit_message(input_value, state):   # input_value : ./data
             for video_path in os.listdir(os.path.join(input_value,crime,"video")):
                 video = os.path.join(input_value,crime,"video",video_path)
                 query_path = os.path.join(input_value,crime,"query")
-                print("Processing the anomaly video index: ", i)
+                print("\tPROCESSING VIDEO INDEX: ", i)
                 history.append({"role": "user", "content": f"Loaded video from file: {video}"})
-                actual_interval  = start_end_df['start'][i-1]  # actual intervla of a particular video
+                actual_start, actual_end = start_end_df['start'][i-1], start_end_df['end'][i-1]  # actual interval of a particular video
+                actual_interval = [actual_start, actual_end]
+                print("\tactual interval", actual_interval)
                 # process each video for the crime
+                
                 for text_file in os.listdir(query_path): # text_file: ./test_video/crime/query
                     query_file = os.path.join(query_path,text_file)
                     with open(query_file, 'r') as file:
                         query = file.read().strip()
+                        print("\t\t The query is: ", query)
                         history.append({"role": "user", "content": f"Loaded query from file: {query_file}"})
                         try:
                             extract_txt(query)
                             extract_vid(video, state)  
-
                             answer, iou_vid, f1_score_vid  = forward(vtg_model, args.save_dir, query, actual_interval=actual_interval)  # for a particular query
                             history.append({"role": "system", "content": answer})
                             top5_video_f1_score.append(f1_score_vid)
@@ -227,7 +277,7 @@ def submit_message(input_value, state):   # input_value : ./data
                         except Exception as e:
                             history.append({"role": "system", "content": f"Error processing query from file {query_file}: {e}"})
                 print("Finished processing the anomaly video index: ", i)
-                i = 1+1  
+                i = i+1  
             print("Finished processing the anomaly video: ", crime)
             print("Average iou score for each query: ", np.mean(np.array(top5_video_iou_score), axis = 0))
             print("Average f1 score for each query: ", np.mean(np.array(top5_video_f1_score), axis = 0))
@@ -238,18 +288,8 @@ def submit_message(input_value, state):   # input_value : ./data
         
         print("Average iou score: ", np.mean(np.array(top5_video_iou_score).reshape(1,-1)))
         print("Average f1 score: ", np.mean(np.array(top5_video_f1_score).reshape(1,-1)))
-
+        print("\n")
     # if directory is not given, process the single query for a single video
-    else:
-        # Process the single query
-        prompt_msg = {"role": "user", "content": input_value}
-        history.append(prompt_msg)
-        try:
-            extract_txt(input_value)
-            answer = forward(vtg_model, args.save_dir, input_value)
-            history.append({"role": "system", "content": answer})
-        except Exception as e:
-            history.append({"role": "system", "content": f"Error: {e}"})
 
     chat_messages = [(history[i]['content'], history[i+1]['content']) for i in range(0, len(history)-1, 2)]
     return '', chat_messages, state
